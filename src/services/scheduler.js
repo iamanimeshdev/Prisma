@@ -5,7 +5,7 @@ const db = require('../core/database');
 const EventEmitter = require('events');
 
 class Scheduler extends EventEmitter {
-    constructor(intervalMs = 60000) {
+    constructor(intervalMs = 10000) {
         super();
         this.intervalMs = intervalMs;
         this.timer = null;
@@ -28,7 +28,12 @@ class Scheduler extends EventEmitter {
 
     checkReminders() {
         try {
+            // Heartbeat — useful for debugging speed
+            console.log('[Scheduler] Heartbeat - Time:', db.db.prepare("SELECT datetime('now') as now").get().now);
             const pending = db.getPendingReminders();
+            if (pending.length > 0) {
+                console.log(`[Scheduler] Check: Found ${pending.length} pending reminders`);
+            }
             for (const reminder of pending) {
                 console.log(`[Scheduler] Triggering reminder: "${reminder.title}" for user ${reminder.user_id}`);
                 db.markReminderTriggered(reminder.id);

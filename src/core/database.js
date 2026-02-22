@@ -142,7 +142,7 @@ const stmts = {
     SELECT role, content FROM messages
     WHERE conversation_id = ?
     ORDER BY created_at ASC
-    LIMIT 50
+    LIMIT 20
   `),
 
   // Tokens
@@ -161,7 +161,7 @@ const stmts = {
     INSERT INTO reminders (id, user_id, title, datetime) VALUES (@id, @userId, @title, @datetime)
   `),
   getPendingReminders: db.prepare(`
-    SELECT * FROM reminders WHERE triggered = 0 AND datetime <= datetime('now')
+    SELECT * FROM reminders WHERE triggered = 0 AND datetime(datetime) <= datetime('now')
   `),
   markReminderTriggered: db.prepare('UPDATE reminders SET triggered = 1 WHERE id = ?'),
 

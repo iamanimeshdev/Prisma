@@ -199,6 +199,53 @@ ipcMain.handle('chat:history', async (event, conversationId) => {
     }
 });
 
+// Streaming chat (SSE via IPC events)
+ipcMain.handle('chat:sendStream', async (event, { message, conversationId }) => {
+    if (!currentUser) return { error: 'Not authenticated' };
+
+    try {
+        const res = await apiFetch('/api/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, conversationId }),
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            return { error: data.error || 'Stream request failed' };
+        }
+
+        // Read SSE stream
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event = JSON.parse(line.slice(6));
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('chat:stream', event);
+                        }
+                    } catch { /* ignore parse errors */ }
+                }
+            }
+        }
+
+        return { success: true };
+    } catch (err) {
+        return { error: err.message };
+    }
+});
+
 // Conversations
 ipcMain.handle('conversations:list', async () => {
     if (!currentUser) return { conversations: [] };
@@ -316,10 +363,59 @@ app.whenReady().then(async () => {
 
         // Create window
         createWindow();
+
+        // Windows: Set AppUserModelId for notifications
+        if (process.platform === 'win32') {
+            app.setAppUserModelId('com.iamanimeshdev.prisma');
+        }
+
+        // Start polling for triggered reminders (Pulse)
+        startReminderPolling();
     } catch (err) {
         console.error('[Electron] Startup error:', err);
     }
 });
+
+let reminderPollTimer = null;
+function startReminderPolling() {
+    if (reminderPollTimer) return;
+    console.log('[Pulse] Reminder polling started');
+
+    // Check every 10 seconds
+    reminderPollTimer = setInterval(async () => {
+        if (!currentUser) return;
+
+        try {
+            const res = await apiFetch('/api/reminders/triggered');
+            if (!res.ok) return;
+
+            const { reminders } = await res.json();
+            if (reminders && reminders.length > 0) {
+                console.log(`[Pulse] Received ${reminders.length} triggered reminders`);
+                for (const reminder of reminders) {
+                    console.log(`[Pulse] Triggering: ${reminder.title}`);
+                    // 1. Native OS Notification
+                    const { Notification } = require('electron');
+                    if (Notification.isSupported()) {
+                        const iconPath = path.join(__dirname, 'icon.png');
+                        new Notification({
+                            title: 'PRISMA Reminder',
+                            body: reminder.title,
+                            icon: fs.existsSync(iconPath) ? iconPath : undefined,
+                        }).show();
+                    }
+
+                    // 2. In-App UI Alert (via IPC)
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('reminder:trigger', reminder);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[Pulse] Polling error:', err.message);
+        }
+    }, 10000);
+}
 
 app.on('window-all-closed', () => {
     voiceEngine.destroy();

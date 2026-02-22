@@ -9,10 +9,13 @@ const session = require('express-session');
 const { v4: uuidv4 } = require('uuid');
 
 const { mountAuthRoutes, requireAuth } = require('./services/auth');
-const { initGemini, callGemini } = require('./core/ai');
+const { initGemini, callGemini, callGeminiStreaming } = require('./core/ai');
 const { loadContext, appendMessage } = require('./core/context');
 const db = require('./core/database');
 const scheduler = require('./services/scheduler');
+
+// Memory queue for triggered reminders (to be polled by frontend)
+const triggeredRemindersQueue = [];
 
 // Register tools (side-effect: populates tool registry)
 require('./tools/emailTools');
@@ -111,6 +114,66 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     }
 });
 
+// ── Streaming Chat Endpoint (SSE) ──────────────────────────
+app.post('/api/chat/stream', requireAuth, async (req, res) => {
+    try {
+        const { message, conversationId } = req.body;
+        if (!message || typeof message !== 'string' || message.trim().length === 0) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+        if (!conversationId) {
+            return res.status(400).json({ error: 'conversationId is required' });
+        }
+
+        const userId = req.session.userId;
+        const user = db.getUser(userId);
+        if (!user) {
+            return res.status(401).json({ error: 'User not found. Please re-authenticate.' });
+        }
+
+        // SSE headers
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        });
+
+        appendMessage(userId, conversationId, 'user', message.trim());
+        const context = loadContext(conversationId);
+
+        const reply = await callGeminiStreaming(
+            context,
+            user,
+            (chunk) => {
+                res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
+            },
+            (toolName) => {
+                res.write(`data: ${JSON.stringify({ type: 'tool', name: toolName })}\n\n`);
+            }
+        );
+
+        appendMessage(userId, conversationId, 'assistant', reply);
+
+        // Auto-title
+        const conv = db.getConversation(conversationId);
+        if (conv && conv.title === 'New Chat') {
+            const autoTitle = message.trim().substring(0, 40) + (message.length > 40 ? '...' : '');
+            db.updateConversationTitle(conversationId, autoTitle);
+        }
+
+        res.write(`data: ${JSON.stringify({ type: 'done', text: reply })}\n\n`);
+        res.end();
+    } catch (err) {
+        console.error('[Chat Stream] Error:', err);
+        try {
+            res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+            res.end();
+        } catch {
+            // Response already ended
+        }
+    }
+});
+
 // ── Voice Chat Endpoint (same logic, different source tag) ─
 app.post('/api/voice-chat', requireAuth, async (req, res) => {
     try {
@@ -144,6 +207,13 @@ app.post('/api/voice-chat', requireAuth, async (req, res) => {
     }
 });
 
+// ── Reminders ──────────────────────────────────────────────
+app.get('/api/reminders/triggered', requireAuth, (req, res) => {
+    const list = [...triggeredRemindersQueue];
+    triggeredRemindersQueue.length = 0; // Clear queue
+    res.json({ reminders: list });
+});
+
 // ── Message History (conversation-scoped) ──────────────────
 app.get('/api/messages/:conversationId', requireAuth, (req, res) => {
     const messages = db.getConversationMessages(req.params.conversationId);
@@ -166,14 +236,15 @@ function startServer() {
 
     // Listen for triggered reminders
     scheduler.on('reminder', (reminder) => {
-        console.log(`[Reminder] ⏰ "${reminder.title}" — User: ${reminder.user_id}`);
+        console.log(`[Reminder] (!!) "${reminder.title}" - User: ${reminder.user_id}`);
+        triggeredRemindersQueue.push(reminder);
     });
 
     return new Promise((resolve) => {
         const server = app.listen(PORT, () => {
-            console.log(`\n  ╔══════════════════════════════════════╗`);
-            console.log(`  ║   PRISMA Server running on :${PORT}     ║`);
-            console.log(`  ╚══════════════════════════════════════╝\n`);
+            console.log(`\n  +--------------------------------------+`);
+            console.log(`  |   PRISMA Server running on :${PORT}     |`);
+            console.log(`  +--------------------------------------+\n`);
             resolve(server);
         });
     });

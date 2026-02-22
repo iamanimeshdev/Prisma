@@ -11,12 +11,10 @@ const db = require('../core/database');
 // ════════════════════════════════════════════════════════════
 registerTool({
     name: 'store_memory',
-    description: `Save a fact or preference about the user to long-term memory. This persists across all conversations. BE PROACTIVE: You should call this automatically whenever you learn new information, without being asked. Examples:
-- Contact info: When a user gives an email for a name (e.g. "Dinesh's email is..."), or when they say "send email to x@y.com" for a known person.
-- Preferences: "I prefer dark mode" or "I live in Mumbai"
-- Names/Relationships: "My sister is Ananya"
-- Recurring info: "Meeting is always at 5pm"
-Always call this BEFORE or alongside the primary task if you just learned the info.`,
+    description: `Save a fact or preference about the user to long-term memory. BE PROACTIVE: You should call this automatically whenever you learn new information. NOTE: You can and should call this tool MULTIPLE times or ALONGSIDE other tools (like send_email) in the same turn if you learn a fact while performing another task.
+Examples:
+- "Dinesh's email is..." -> call store_memory + proceed with email.
+- "I prefer dark mode" -> call store_memory.`,
     schema: z.object({
         key: z.string().describe('Short descriptive label, e.g. "Dinesh email" or "preferred timezone"'),
         value: z.string().describe('The actual fact to remember, e.g. "dinesh@example.com" or "IST (Asia/Kolkata)"'),

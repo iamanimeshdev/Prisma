@@ -31,7 +31,23 @@ contextBridge.exposeInMainWorld('prisma', {
     // ── Chat (conversation-scoped) ──────────────
     chat: {
         send: ({ message, conversationId }) => ipcRenderer.invoke('chat:send', { message, conversationId }),
+        sendStream: ({ message, conversationId }) => ipcRenderer.invoke('chat:sendStream', { message, conversationId }),
+        onStream: (callback) => {
+            const listener = (_, event) => callback(event);
+            ipcRenderer.on('chat:stream', listener);
+            return listener; // Return for removal if needed
+        },
+        removeStreamListener: (listener) => {
+            if (listener) ipcRenderer.removeListener('chat:stream', listener);
+        },
         getHistory: (conversationId) => ipcRenderer.invoke('chat:history', conversationId),
+    },
+
+    // ── Reminders (Pulse) ───────────────────────
+    reminders: {
+        onTrigger: (callback) => {
+            ipcRenderer.on('reminder:trigger', (_, reminder) => callback(reminder));
+        },
     },
 
     // ── Voice ───────────────────────────────────

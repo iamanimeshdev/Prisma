@@ -121,26 +121,29 @@ registerTool({
         time: z.string().describe('Reminder time in HH:MM format (24-hour)'),
     }),
     async execute(args, context) {
-        const datetime = `${args.date}T${args.time}:00`;
-        const parsed = new Date(datetime);
+        const datetimeLocal = `${args.date}T${args.time}:00`;
+        const parsed = new Date(datetimeLocal);
 
         if (isNaN(parsed.getTime())) {
             return { success: false, error: 'Invalid date or time format.' };
         }
+
+        // Standardize on UTC ISO string for storage
+        const datetimeUTC = parsed.toISOString();
 
         const id = uuidv4();
         db.createReminder({
             id,
             userId: context.userId,
             title: args.title,
-            datetime,
+            datetime: datetimeUTC,
         });
 
         return {
             success: true,
             reminderId: id,
             title: args.title,
-            datetime,
+            datetime: datetimeUTC,
             message: `Reminder set for ${parsed.toLocaleString()}`,
         };
     },

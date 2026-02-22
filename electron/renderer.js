@@ -201,31 +201,108 @@ async function sendMessage() {
     const typingEl = addTypingIndicator();
     showToolIndicator('Processing your request...');
 
+    // Create an empty assistant message bubble for streaming
+    const streamBubble = createStreamBubble();
+    let typingRemoved = false;
+
+    // Set up stream listener
+    let actualListener = null;
+
+    const cleanup = () => {
+        if (actualListener) {
+            prisma.chat.removeStreamListener(actualListener);
+            actualListener = null;
+        }
+    };
+
+    const streamHandler = (event) => {
+        if (event.type === 'chunk') {
+            if (!typingRemoved) {
+                typingEl.remove();
+                typingRemoved = true;
+            }
+            updateStreamBubble(streamBubble, event.text);
+        } else if (event.type === 'tool') {
+            showToolIndicator(`Using ${event.name.replace(/_/g, ' ')}...`);
+        } else if (event.type === 'done') {
+            hideToolIndicator();
+            if (!typingRemoved) typingEl.remove();
+            // Final update with formatted content
+            updateStreamBubble(streamBubble, event.text, true);
+            refreshConversationList();
+            cleanup();
+            isProcessing = false;
+            btnSend.disabled = false;
+            chatInput.focus();
+        } else if (event.type === 'error') {
+            hideToolIndicator();
+            if (!typingRemoved) typingEl.remove();
+            updateStreamBubble(streamBubble, `⚠️ ${event.error}`, true);
+            cleanup();
+            isProcessing = false;
+            btnSend.disabled = false;
+            chatInput.focus();
+        }
+    };
+
+    actualListener = prisma.chat.onStream(streamHandler);
+
     try {
-        const data = await prisma.chat.send({
+        const result = await prisma.chat.sendStream({
             message,
             conversationId: activeConversationId,
         });
-        typingEl.remove();
-        hideToolIndicator();
 
-        if (data.error) {
-            addMessage('assistant', `⚠️ ${data.error}`);
-        } else {
-            addMessage('assistant', data.reply);
+        if (result.error) {
+            hideToolIndicator();
+            if (!typingRemoved) typingEl.remove();
+            updateStreamBubble(streamBubble, `⚠️ ${result.error}`, true);
+            cleanup();
+            isProcessing = false;
+            btnSend.disabled = false;
+            chatInput.focus();
         }
-
-        // Refresh conversation list (title may have been updated)
-        refreshConversationList();
     } catch (err) {
-        typingEl.remove();
         hideToolIndicator();
-        addMessage('assistant', `⚠️ Error: ${err.message}`);
-    } finally {
+        if (!typingRemoved) typingEl.remove();
+        updateStreamBubble(streamBubble, `⚠️ Error: ${err.message}`, true);
+        cleanup();
         isProcessing = false;
         btnSend.disabled = false;
         chatInput.focus();
     }
+}
+
+function createStreamBubble() {
+    const msgEl = document.createElement('div');
+    msgEl.className = 'message assistant';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'message-avatar';
+    avatar.textContent = '◆';
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'message-content';
+    contentEl.innerHTML = '';
+
+    msgEl.appendChild(avatar);
+    msgEl.appendChild(contentEl);
+    messagesContainer.appendChild(msgEl);
+    // Don't add to DOM yet — only visible once first chunk arrives
+    msgEl.style.display = 'none';
+
+    return { element: msgEl, content: contentEl };
+}
+
+function updateStreamBubble(bubble, text, isFinal = false) {
+    bubble.element.style.display = 'flex';
+    if (isFinal) {
+        bubble.content.innerHTML = formatMessage(text);
+    } else {
+        // During streaming, show raw text with cursor
+        bubble.content.innerHTML = formatMessage(text) + '<span class="stream-cursor">▌</span>';
+    }
+    scrollToBottom();
 }
 
 async function refreshConversationList() {
@@ -421,3 +498,39 @@ function getWelcomeHTML() {
         console.log('Initial auth check — not authenticated');
     }
 })();
+
+// ── Pulse Reminders ──────────────────────────────────────────
+function showToast(title, message) {
+    const toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        console.warn('[Pulse] Toast container not found in DOM');
+        return;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `
+    <div class="toast-icon">⏰</div>
+    <div class="toast-body">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+  `;
+
+    toastContainer.appendChild(toast);
+
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+        toast.classList.add('hiding');
+        setTimeout(() => toast.remove(), 400); // Wait for transition
+    }, 10000);
+}
+
+prisma.reminders.onTrigger((reminder) => {
+    showToast('PRISMA Reminder', reminder.title);
+    // Also add to chat if active
+    if (activeConversationId) {
+        // Optional: you could add a specialized "system" message bubble here
+        // addMessage('assistant', `⏰ Reminder: ${reminder.title}`);
+    }
+});
