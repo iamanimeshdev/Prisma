@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment
+.env
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Electron
+builder-debug.yml
+dist-electron/
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/

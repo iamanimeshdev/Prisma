@@ -1,0 +1,92 @@
+// ============================================================
+// PRISMA — Memory Tools (Cross-Chat Persistent Memory)
+// ============================================================
+const { z } = require('zod');
+const { v4: uuidv4 } = require('uuid');
+const { registerTool } = require('../core/toolRegistry');
+const db = require('../core/database');
+
+// ════════════════════════════════════════════════════════════
+// TOOL: store_memory
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'store_memory',
+    description: `Save a fact or preference about the user to long-term memory. This persists across all conversations. BE PROACTIVE: You should call this automatically whenever you learn new information, without being asked. Examples:
+- Contact info: When a user gives an email for a name (e.g. "Dinesh's email is..."), or when they say "send email to x@y.com" for a known person.
+- Preferences: "I prefer dark mode" or "I live in Mumbai"
+- Names/Relationships: "My sister is Ananya"
+- Recurring info: "Meeting is always at 5pm"
+Always call this BEFORE or alongside the primary task if you just learned the info.`,
+    schema: z.object({
+        key: z.string().describe('Short descriptive label, e.g. "Dinesh email" or "preferred timezone"'),
+        value: z.string().describe('The actual fact to remember, e.g. "dinesh@example.com" or "IST (Asia/Kolkata)"'),
+        category: z.string().optional().describe('Category: "contact", "preference", "schedule", or "fact" (default: "fact")'),
+    }),
+    async execute(args, context) {
+        const id = uuidv4();
+        db.upsertMemory({
+            id,
+            userId: context.userId,
+            key: args.key.toLowerCase().trim(),
+            value: args.value.trim(),
+            category: args.category || 'fact',
+        });
+
+        return {
+            success: true,
+            key: args.key,
+            value: args.value,
+            message: `Remembered: "${args.key}" = "${args.value}"`,
+        };
+    },
+});
+
+// ════════════════════════════════════════════════════════════
+// TOOL: recall_memory
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'recall_memory',
+    description: `Search long-term memory for stored facts about the user. Use this when you need to look up something the user previously told you, like a contact's email, a preference, or a scheduled event.`,
+    schema: z.object({
+        query: z.string().describe('Search query — can be a name, topic, or keyword, e.g. "Dinesh" or "timezone"'),
+    }),
+    async execute(args, context) {
+        const results = db.searchMemories(context.userId, args.query.trim());
+
+        if (results.length === 0) {
+            return {
+                found: false,
+                message: `No memories found matching "${args.query}".`,
+            };
+        }
+
+        return {
+            found: true,
+            memories: results,
+            count: results.length,
+        };
+    },
+});
+
+// ════════════════════════════════════════════════════════════
+// TOOL: forget_memory
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'forget_memory',
+    description: `Delete a specific fact from long-term memory. Use when the user asks you to forget something or when information is outdated.`,
+    schema: z.object({
+        key: z.string().describe('The key of the memory to delete, e.g. "Dinesh email"'),
+    }),
+    async execute(args, context) {
+        const existing = db.getMemory(context.userId, args.key.toLowerCase().trim());
+        if (!existing) {
+            return { success: false, message: `No memory found with key "${args.key}".` };
+        }
+
+        db.deleteMemory(context.userId, args.key.toLowerCase().trim());
+        return {
+            success: true,
+            message: `Forgot: "${args.key}"`,
+        };
+    },
+});

@@ -1,0 +1,31 @@
+{
+  "name": "prisma-assistant",
+  "version": "1.0.0",
+  "description": "PRISMA - Personal Research & Intelligent System Manager Assistant",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "electron": "electron .",
+    "dev": "node src/server.js & electron ."
+  },
+  "keywords": ["ai", "assistant", "desktop", "gemini", "voice"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@picovoice/porcupine-node": "^3.0.0",
+    "better-sqlite3": "^11.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "googleapis": "^144.0.0",
+    "node-record-lpcm16": "^1.0.1",
+    "say": "^0.16.0",
+    "uuid": "^11.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
