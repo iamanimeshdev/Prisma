@@ -29,7 +29,7 @@ class Scheduler extends EventEmitter {
     checkReminders() {
         try {
             // Heartbeat — useful for debugging speed
-            console.log('[Scheduler] Heartbeat - Time:', db.db.prepare("SELECT datetime('now') as now").get().now);
+            // console.log('[Scheduler] Heartbeat - Time:', db.db.prepare("SELECT datetime('now') as now").get().now);
             const pending = db.getPendingReminders();
             if (pending.length > 0) {
                 console.log(`[Scheduler] Check: Found ${pending.length} pending reminders`);

@@ -8,13 +8,18 @@
     "electron": "electron .",
     "dev": "node src/server.js & electron ."
   },
-  "keywords": ["ai", "assistant", "desktop", "gemini", "voice"],
+  "keywords": [
+    "ai",
+    "assistant",
+    "desktop",
+    "gemini",
+    "voice"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "@picovoice/porcupine-node": "^3.0.0",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
@@ -26,6 +31,6 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^40.6.0"
   }
 }

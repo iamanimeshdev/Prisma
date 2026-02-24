@@ -9,10 +9,10 @@ const session = require('express-session');
 const { v4: uuidv4 } = require('uuid');
 
 const { mountAuthRoutes, requireAuth } = require('./services/auth');
-const { initGemini, callGemini, callGeminiStreaming } = require('./core/ai');
+const { initAI, callAI, callAIStreaming } = require('./core/ai');
 const { loadContext, appendMessage } = require('./core/context');
 const db = require('./core/database');
-const scheduler = require('./services/scheduler');
+const pulse = require('./services/pulse');
 
 // Memory queue for triggered reminders (to be polled by frontend)
 const triggeredRemindersQueue = [];
@@ -21,6 +21,10 @@ const triggeredRemindersQueue = [];
 require('./tools/emailTools');
 require('./tools/calendarTools');
 require('./tools/memoryTools');
+require('./tools/scheduleTools');
+require('./tools/gitTools');
+require('./tools/repoGuardian');
+require('./tools/issuePrTools');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,8 +46,9 @@ app.use(session({
     },
 }));
 
-// ── Auth Routes ────────────────────────────────────────────
+// Static files and parsed routes
 mountAuthRoutes(app);
+app.use('/webhooks/github', require('./routes/webhookRoutes'));
 
 // ── Conversation CRUD ──────────────────────────────────────
 app.get('/api/conversations', requireAuth, (req, res) => {
@@ -93,8 +98,8 @@ app.post('/api/chat', requireAuth, async (req, res) => {
         // Load conversation context
         const context = loadContext(conversationId);
 
-        // Call Gemini with tools
-        const reply = await callGemini(context, user);
+        // Call AI with tools
+        const reply = await callAI(context, user);
 
         // Save assistant response
         appendMessage(userId, conversationId, 'assistant', reply);
@@ -141,7 +146,7 @@ app.post('/api/chat/stream', requireAuth, async (req, res) => {
         appendMessage(userId, conversationId, 'user', message.trim());
         const context = loadContext(conversationId);
 
-        const reply = await callGeminiStreaming(
+        const reply = await callAIStreaming(
             context,
             user,
             (chunk) => {
@@ -197,7 +202,7 @@ app.post('/api/voice-chat', requireAuth, async (req, res) => {
 
         appendMessage(userId, activeConvId, 'user', `[voice] ${message.trim()}`);
         const context = loadContext(activeConvId);
-        const reply = await callGemini(context, user);
+        const reply = await callAI(context, user);
         appendMessage(userId, activeConvId, 'assistant', reply);
 
         res.json({ reply, conversationId: activeConvId });
@@ -212,6 +217,12 @@ app.get('/api/reminders/triggered', requireAuth, (req, res) => {
     const list = [...triggeredRemindersQueue];
     triggeredRemindersQueue.length = 0; // Clear queue
     res.json({ reminders: list });
+});
+
+// ── Pulse Notifications (polled by Electron) ──────────────
+app.get('/api/pulse/notifications', (req, res) => {
+    const notifications = pulse.getNotifications();
+    res.json({ notifications });
 });
 
 // ── Message History (conversation-scoped) ──────────────────
@@ -231,21 +242,70 @@ app.get('/api/health', (req, res) => {
 
 // ── Start Server ───────────────────────────────────────────
 function startServer() {
-    initGemini();
-    scheduler.start();
+    initAI();
 
-    // Listen for triggered reminders
-    scheduler.on('reminder', (reminder) => {
-        console.log(`[Reminder] (!!) "${reminder.title}" - User: ${reminder.user_id}`);
+    // Start Pulse Engine (replaces old scheduler)
+    pulse.start();
+
+    // Listen for triggered reminders from Pulse
+    pulse.on('reminder', (reminder) => {
         triggeredRemindersQueue.push(reminder);
     });
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         const server = app.listen(PORT, () => {
             console.log(`\n  +--------------------------------------+`);
             console.log(`  |   PRISMA Server running on :${PORT}     |`);
             console.log(`  +--------------------------------------+\n`);
+
+            // Start tunnel AFTER Express is listening
+            const tunnelManager = require('./services/tunnel');
+            tunnelManager.start().then(url => {
+                if (url) console.log(`[Server] Webhook tunnel active at ${url}`);
+            });
+
             resolve(server);
+        });
+
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.warn(`[Server] Port ${PORT} is in use — killing old process...`);
+                try {
+                    // Find and kill the process using this port
+                    const { execSync } = require('child_process');
+                    const result = execSync(`netstat -ano | findstr :${PORT} | findstr LISTENING`, {
+                        encoding: 'utf8', shell: true, windowsHide: true
+                    }).trim();
+                    const lines = result.split('\n');
+                    for (const line of lines) {
+                        const parts = line.trim().split(/\s+/);
+                        const pid = parts[parts.length - 1];
+                        if (pid && pid !== '0') {
+                            try {
+                                execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore', windowsHide: true });
+                                console.log(`[Server] Killed old process (PID ${pid})`);
+                            } catch { /* process might already be dead */ }
+                        }
+                    }
+                    // Retry after a short delay
+                    setTimeout(() => {
+                        console.log(`[Server] Retrying port ${PORT}...`);
+                        const retryServer = app.listen(PORT, () => {
+                            console.log(`[Server] PRISMA Server running on :${PORT} (retry)`);
+                            const tunnelManager = require('./services/tunnel');
+                            tunnelManager.start().then(url => {
+                                if (url) console.log(`[Server] Webhook tunnel active at ${url}`);
+                            });
+                            resolve(retryServer);
+                        });
+                    }, 1500);
+                } catch (killErr) {
+                    console.error(`[Server] Could not free port ${PORT}. Please close the other app using it.`);
+                    reject(err);
+                }
+            } else {
+                reject(err);
+            }
         });
     });
 }

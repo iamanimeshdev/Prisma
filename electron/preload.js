@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld('prisma', {
         close: () => ipcRenderer.invoke('window:close'),
     },
 
+    // ── Dialog ─────────────────────────────────
+    dialog: {
+        pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+    },
+
     // ── Authentication ──────────────────────────
     auth: {
         login: () => ipcRenderer.invoke('auth:login'),
@@ -47,6 +52,13 @@ contextBridge.exposeInMainWorld('prisma', {
     reminders: {
         onTrigger: (callback) => {
             ipcRenderer.on('reminder:trigger', (_, reminder) => callback(reminder));
+        },
+    },
+
+    // ── Pulse Notifications ─────────────────────
+    pulse: {
+        onNotification: (callback) => {
+            ipcRenderer.on('pulse:notify', (_, notification) => callback(notification));
         },
     },
 

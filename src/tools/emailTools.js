@@ -178,7 +178,7 @@ registerTool({
 // ════════════════════════════════════════════════════════════
 registerTool({
     name: 'send_email',
-    description: 'Send an email from the user\'s Gmail account. Requires recipient, subject, and body.',
+    description: 'Send an email IMMEDIATELY from the user\'s Gmail account. WARNING: This sends INSTANTLY. If the user wants to send an email later, at a specific time, or in X minutes, use the schedule_email tool instead — NOT this one.',
     schema: z.object({
         to: z.string().describe('Recipient email address'),
         subject: z.string().describe('Email subject line'),

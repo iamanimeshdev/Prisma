@@ -33,9 +33,9 @@ function getAllTools() {
 }
 
 /**
- * Convert a Zod schema to Gemini function declaration parameters.
+ * Convert a Zod schema to JSON Schema format (OpenAI-compatible).
  */
-function zodToGeminiParams(schema) {
+function zodToJsonSchema(schema) {
     const shape = schema.shape;
     const properties = {};
     const required = [];
@@ -45,28 +45,28 @@ function zodToGeminiParams(schema) {
 
         // Determine type
         if (value instanceof z.ZodString) {
-            prop.type = 'STRING';
+            prop.type = 'string';
             if (value.description) prop.description = value.description;
         } else if (value instanceof z.ZodNumber) {
-            prop.type = 'NUMBER';
+            prop.type = 'number';
             if (value.description) prop.description = value.description;
         } else if (value instanceof z.ZodBoolean) {
-            prop.type = 'BOOLEAN';
+            prop.type = 'boolean';
             if (value.description) prop.description = value.description;
         } else if (value instanceof z.ZodArray) {
-            prop.type = 'ARRAY';
-            prop.items = { type: 'STRING' };
+            prop.type = 'array';
+            prop.items = { type: 'string' };
             if (value.description) prop.description = value.description;
         } else if (value instanceof z.ZodOptional) {
             // Unwrap optional
             const inner = value._def.innerType;
-            if (inner instanceof z.ZodString) prop.type = 'STRING';
-            else if (inner instanceof z.ZodNumber) prop.type = 'NUMBER';
-            else if (inner instanceof z.ZodBoolean) prop.type = 'BOOLEAN';
-            else prop.type = 'STRING';
+            if (inner instanceof z.ZodString) prop.type = 'string';
+            else if (inner instanceof z.ZodNumber) prop.type = 'number';
+            else if (inner instanceof z.ZodBoolean) prop.type = 'boolean';
+            else prop.type = 'string';
             if (value.description) prop.description = value.description;
         } else {
-            prop.type = 'STRING';
+            prop.type = 'string';
         }
 
         properties[key] = prop;
@@ -77,17 +77,20 @@ function zodToGeminiParams(schema) {
         }
     }
 
-    return { type: 'OBJECT', properties, required };
+    return { type: 'object', properties, required };
 }
 
 /**
- * Get Gemini-compatible function declarations for all registered tools.
+ * Get OpenAI-compatible tool declarations for all registered tools.
  */
-function getGeminiFunctionDeclarations() {
+function getToolDeclarations() {
     return getAllTools().map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: zodToGeminiParams(tool.schema),
+        type: 'function',
+        function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: zodToJsonSchema(tool.schema),
+        },
     }));
 }
 
@@ -110,6 +113,6 @@ module.exports = {
     registerTool,
     getTool,
     getAllTools,
-    getGeminiFunctionDeclarations,
+    getToolDeclarations,
     executeTool,
 };

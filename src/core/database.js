@@ -87,6 +87,28 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    run_at TEXT NOT NULL,
+    recurring TEXT,
+    status TEXT DEFAULT 'pending',
+    last_run TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS pulse_log (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    notified_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, source, source_id)
+  );
 `);
 
 // ── Database Migration ─────────────────────────────────────
@@ -184,6 +206,40 @@ const stmts = {
     SELECT key, value, category FROM memories WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50
   `),
   deleteMemory: db.prepare('DELETE FROM memories WHERE user_id = ? AND key = ?'),
+
+  // Scheduled Jobs
+  createJob: db.prepare(`
+    INSERT INTO scheduled_jobs (id, user_id, type, payload, run_at, recurring)
+    VALUES (@id, @userId, @type, @payload, @runAt, @recurring)
+  `),
+  getPendingJobs: db.prepare(`
+    SELECT * FROM scheduled_jobs
+    WHERE status = 'pending' AND datetime(run_at) <= datetime('now')
+  `),
+  getJobsByUser: db.prepare(`
+    SELECT * FROM scheduled_jobs WHERE user_id = ? AND status = 'pending'
+    ORDER BY run_at ASC
+  `),
+  updateJobStatus: db.prepare(`
+    UPDATE scheduled_jobs SET status = @status, last_run = datetime('now') WHERE id = @id
+  `),
+  deleteJob: db.prepare('DELETE FROM scheduled_jobs WHERE id = ?'),
+  rescheduleJob: db.prepare(`
+    UPDATE scheduled_jobs SET run_at = @runAt, status = 'pending' WHERE id = @id
+  `),
+
+  // Pulse Log (deduplication)
+  logPulseNotification: db.prepare(`
+    INSERT OR IGNORE INTO pulse_log (id, user_id, source, source_id)
+    VALUES (@id, @userId, @source, @sourceId)
+  `),
+  hasPulseNotification: db.prepare(`
+    SELECT 1 FROM pulse_log WHERE user_id = ? AND source = ? AND source_id = ?
+  `),
+  cleanOldPulseLogs: db.prepare(`
+    DELETE FROM pulse_log WHERE notified_at < datetime('now', '-7 days')
+  `),
+  getAllUsers: db.prepare('SELECT * FROM users'),
 };
 
 // ── Exported Helpers ───────────────────────────────────────
@@ -265,5 +321,39 @@ module.exports = {
   },
   deleteMemory(userId, key) {
     return stmts.deleteMemory.run(userId, key);
+  },
+
+  // Scheduled Jobs
+  createJob({ id, userId, type, payload, runAt, recurring }) {
+    return stmts.createJob.run({ id, userId, type, payload: JSON.stringify(payload), runAt, recurring: recurring || null });
+  },
+  getPendingJobs() {
+    return stmts.getPendingJobs.all().map(j => ({ ...j, payload: JSON.parse(j.payload) }));
+  },
+  getJobsByUser(userId) {
+    return stmts.getJobsByUser.all(userId).map(j => ({ ...j, payload: JSON.parse(j.payload) }));
+  },
+  updateJobStatus(id, status) {
+    return stmts.updateJobStatus.run({ id, status });
+  },
+  deleteJob(id) {
+    return stmts.deleteJob.run(id);
+  },
+  rescheduleJob(id, runAt) {
+    return stmts.rescheduleJob.run({ id, runAt });
+  },
+
+  // Pulse Log
+  logPulseNotification({ id, userId, source, sourceId }) {
+    return stmts.logPulseNotification.run({ id, userId, source, sourceId });
+  },
+  hasPulseNotification(userId, source, sourceId) {
+    return !!stmts.hasPulseNotification.get(userId, source, sourceId);
+  },
+  cleanOldPulseLogs() {
+    return stmts.cleanOldPulseLogs.run();
+  },
+  getAllUsers() {
+    return stmts.getAllUsers.all();
   },
 };

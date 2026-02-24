@@ -802,7 +802,8 @@ body {
 }
 
 .btn-send,
-.btn-mic {
+.btn-mic,
+.btn-folder {
   width: 36px;
   height: 36px;
   border: none;
@@ -831,12 +832,14 @@ body {
   transform: none;
 }
 
-.btn-mic {
+.btn-mic,
+.btn-folder {
   background: transparent;
   color: var(--text-secondary);
 }
 
-.btn-mic:hover {
+.btn-mic:hover,
+.btn-folder:hover {
   background: var(--accent-dim);
   color: var(--accent);
 }
@@ -859,80 +862,209 @@ body {
   }
 }
 
-/* ── Pulse Toasts ────────────────────────────────────────── */
+/* ── Pulse Toast Notifications ───────────────────────────── */
 #toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  top: 48px;
+  right: 16px;
   display: flex;
-  flex-direction: column-reverse; /* Newest at the bottom or top? Let's go bottom */
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   z-index: 10000;
   pointer-events: none;
+  max-width: 380px;
+  width: 100%;
 }
 
-.toast {
-  width: 320px;
-  padding: 16px;
-  background: rgba(18, 18, 26, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-left: 4px solid var(--accent);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  color: var(--text-primary);
+.pulse-toast {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  background: rgba(18, 18, 28, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
   pointer-events: all;
-  animation: toastSlideIn 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  animation: pulseToastIn 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
   transition: all 0.3s ease;
 }
 
-.toast.hiding {
+.pulse-toast-hiding {
   opacity: 0;
-  transform: translateX(40px) scale(0.95);
+  transform: translateX(60px) scale(0.92);
+  pointer-events: none;
 }
 
-.toast-icon {
-  width: 36px;
-  height: 36px;
-  background: rgba(110, 107, 255, 0.1);
-  border-radius: 10px;
+.pulse-toast-stripe {
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--toast-accent, #6366f1);
+}
+
+.pulse-toast-content {
+  flex: 1;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.pulse-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.pulse-toast-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.pulse-toast-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-toast-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
   flex-shrink: 0;
-  font-size: 18px;
+  transition: all var(--transition);
 }
 
-.toast-body {
-  flex: 1;
-}
-
-.toast-title {
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 4px;
+.pulse-toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
 
-.toast-message {
-  font-size: 13px;
+.pulse-toast-body {
+  font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.5;
+  max-height: 80px;
+  overflow: hidden;
 }
 
-@keyframes toastSlideIn {
+.pulse-toast-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pulse-toast-action {
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--accent-light);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.pulse-toast-action:hover {
+  background: var(--accent-dim);
+  border-color: var(--border-accent);
+  transform: translateY(-1px);
+}
+
+.pulse-toast-urgent {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(239, 68, 68, 0.15);
+}
+
+.pulse-toast-important {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(245, 158, 11, 0.1);
+}
+
+@keyframes pulseToastIn {
   from {
     opacity: 0;
     transform: translateX(100px) scale(0.9);
   }
+
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
+  }
+}
+
+/* ── Drop Overlay (Drag & Drop GitHub Push) ─────────────── */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-md);
+  animation: dropOverlayIn 0.25s ease;
+}
+
+.drop-overlay.hidden {
+  display: none !important;
+}
+
+.drop-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--accent-light);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.drop-overlay-content svg {
+  stroke: var(--accent-light);
+  opacity: 0.8;
+  animation: dropBounce 1.5s ease-in-out infinite;
+}
+
+@keyframes dropOverlayIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dropBounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
   }
 }
 

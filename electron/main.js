@@ -1,11 +1,10 @@
 // ============================================================
 // PRISMA — Electron Main Process
 // ============================================================
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
-const { startServer } = require('../src/server');
+const { execSync, spawn } = require('child_process');
 const voiceEngine = require('../src/voice/engine');
 
 // Prevent sox/voice errors from crashing the entire app
@@ -73,7 +72,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
     // Open DevTools for debugging (remove in production)
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // mainWindow.webContents.openDevTools({ mode: 'detach' });
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -102,6 +101,18 @@ ipcMain.handle('window:maximize', () => {
     else mainWindow?.maximize();
 });
 ipcMain.handle('window:close', () => mainWindow?.close());
+
+// Folder picker dialog
+ipcMain.handle('dialog:pickFolder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Select Project Folder to Push to GitHub',
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true };
+    }
+    return { canceled: false, folderPath: result.filePaths[0] };
+});
 
 // Auth — open in system browser (Google blocks embedded WebViews)
 let authPollInterval = null;
@@ -335,8 +346,30 @@ function setupVoiceEvents() {
 // ── App Lifecycle ──────────────────────────────────────────
 app.whenReady().then(async () => {
     try {
-        // Start backend server
-        server = await startServer();
+        // Start backend server as a child process using SYSTEM Node.js (not Electron's)
+        // fork() would use Electron's Node.js (process.execPath), causing native module mismatch
+        const serverScript = path.join(__dirname, '..', 'src', 'server.js');
+        server = spawn('node', [serverScript], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env },
+            shell: true,
+        });
+        server.stdout.on('data', (d) => console.log(`[Server] ${d.toString().trim()}`));
+        server.stderr.on('data', (d) => console.error(`[Server] ${d.toString().trim()}`));
+        server.on('error', (err) => console.error('[Server] Process error:', err));
+        server.on('exit', (code) => console.log(`[Server] Exited with code ${code}`));
+
+        // Wait for server to be ready
+        await new Promise((resolve) => {
+            const check = setInterval(async () => {
+                try {
+                    const res = await fetch(`http://localhost:${PORT}/api/health`);
+                    if (res.ok) { clearInterval(check); resolve(); }
+                } catch { /* not ready yet */ }
+            }, 500);
+            // Timeout after 15 seconds
+            setTimeout(() => { clearInterval(check); resolve(); }, 15000);
+        });
         console.log('[Electron] Backend server started');
 
         // Initialize voice engine (needs sox)
@@ -370,55 +403,76 @@ app.whenReady().then(async () => {
         }
 
         // Start polling for triggered reminders (Pulse)
-        startReminderPolling();
+        startPulsePolling();
     } catch (err) {
         console.error('[Electron] Startup error:', err);
     }
 });
 
-let reminderPollTimer = null;
-function startReminderPolling() {
-    if (reminderPollTimer) return;
-    console.log('[Pulse] Reminder polling started');
+let pulsePollTimer = null;
+function startPulsePolling() {
+    if (pulsePollTimer) return;
+    console.log('[Pulse] Notification polling started');
 
-    // Check every 10 seconds
-    reminderPollTimer = setInterval(async () => {
+    // Poll every 5 seconds for all pulse notifications
+    pulsePollTimer = setInterval(async () => {
         if (!currentUser) return;
 
         try {
-            const res = await apiFetch('/api/reminders/triggered');
-            if (!res.ok) return;
+            // Poll pulse notifications (emails, calendar, jobs, reminders)
+            const pulseRes = await fetch(`${BASE_URL}/api/pulse/notifications`);
+            if (pulseRes.ok) {
+                const { notifications } = await pulseRes.json();
+                if (notifications && notifications.length > 0) {
+                    for (const notif of notifications) {
+                        // Native OS notification for urgent/important
+                        if (notif.priority === 'urgent' || notif.priority === 'important') {
+                            const { Notification } = require('electron');
+                            if (Notification.isSupported()) {
+                                const iconPath = path.join(__dirname, 'icon.png');
+                                const nativeNotif = new Notification({
+                                    title: notif.title,
+                                    body: notif.body?.substring(0, 200) || '',
+                                    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+                                });
+                                // Handle click — open URL if action exists
+                                const urlAction = notif.actions?.find(a => a.type === 'open_url');
+                                if (urlAction) {
+                                    nativeNotif.on('click', () => shell.openExternal(urlAction.url));
+                                }
+                                nativeNotif.show();
+                            }
+                        }
 
-            const { reminders } = await res.json();
-            if (reminders && reminders.length > 0) {
-                console.log(`[Pulse] Received ${reminders.length} triggered reminders`);
-                for (const reminder of reminders) {
-                    console.log(`[Pulse] Triggering: ${reminder.title}`);
-                    // 1. Native OS Notification
-                    const { Notification } = require('electron');
-                    if (Notification.isSupported()) {
-                        const iconPath = path.join(__dirname, 'icon.png');
-                        new Notification({
-                            title: 'PRISMA Reminder',
-                            body: reminder.title,
-                            icon: fs.existsSync(iconPath) ? iconPath : undefined,
-                        }).show();
+                        // In-app toast (always)
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('pulse:notify', notif);
+                        }
                     }
+                }
+            }
 
-                    // 2. In-App UI Alert (via IPC)
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('reminder:trigger', reminder);
+            // Also poll reminders (legacy support)
+            const remRes = await apiFetch('/api/reminders/triggered');
+            if (remRes.ok) {
+                const { reminders } = await remRes.json();
+                if (reminders && reminders.length > 0) {
+                    for (const reminder of reminders) {
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('reminder:trigger', reminder);
+                        }
                     }
                 }
             }
         } catch (err) {
-            console.error('[Pulse] Polling error:', err.message);
+            // Server not ready, ignore
         }
-    }, 10000);
+    }, 5000);
 }
 
 app.on('window-all-closed', () => {
     voiceEngine.destroy();
+    if (server && !server.killed) server.kill();
     if (process.platform !== 'darwin') {
         app.quit();
     }

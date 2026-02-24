@@ -38,6 +38,19 @@ $('#btn-minimize').addEventListener('click', () => prisma.window.minimize());
 $('#btn-maximize').addEventListener('click', () => prisma.window.maximize());
 $('#btn-close').addEventListener('click', () => prisma.window.close());
 
+// ── Folder Picker ──────────────────────────────────────────
+$('#btn-folder').addEventListener('click', async () => {
+    const result = await prisma.dialog.pickFolder();
+    if (result.canceled) return;
+
+    const existing = chatInput.value.trim();
+    const tag = `[Dropped Folder: ${result.folderPath}]`;
+    chatInput.value = existing ? `${existing}\n${tag}` : tag;
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    chatInput.focus();
+});
+
 // ── Authentication ─────────────────────────────────────────
 btnLogin.addEventListener('click', async () => {
     btnLogin.disabled = true;
@@ -499,38 +512,154 @@ function getWelcomeHTML() {
     }
 })();
 
-// ── Pulse Reminders ──────────────────────────────────────────
-function showToast(title, message) {
+// ── Drag & Drop Folder Support ─────────────────────────────
+const chatArea = document.querySelector('.chat-area');
+const dropOverlay = (() => {
+    const el = document.createElement('div');
+    el.className = 'drop-overlay hidden';
+    el.innerHTML = `
+        <div class="drop-overlay-content">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span>Drop folder here to push to GitHub</span>
+        </div>
+    `;
+    chatArea.appendChild(el);
+    return el;
+})();
+
+// Prevent default drag behaviour globally
+document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+document.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); });
+
+// Show overlay when dragging over chat area
+chatArea.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dropOverlay.classList.remove('hidden');
+});
+
+chatArea.addEventListener('dragleave', (e) => {
+    // Only hide if we actually left the chat area
+    if (!chatArea.contains(e.relatedTarget)) {
+        dropOverlay.classList.add('hidden');
+    }
+});
+
+chatArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropOverlay.classList.add('hidden');
+
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+
+    const droppedPath = files[0].path;
+    if (!droppedPath) return;
+
+    // Append the dropped folder/file path to the chat input
+    const existing = chatInput.value.trim();
+    const tag = `[Dropped Folder: ${droppedPath}]`;
+    chatInput.value = existing ? `${existing}\n${tag}` : tag;
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    chatInput.focus();
+});
+
+// ── Pulse Notification Toasts ──────────────────────────────
+const MAX_VISIBLE_TOASTS = 3;
+
+const PRIORITY_CONFIG = {
+    urgent: { color: '#ef4444', icon: '🚨', label: 'Urgent' },
+    important: { color: '#f59e0b', icon: '⚡', label: 'Important' },
+    info: { color: '#6366f1', icon: 'ℹ️', label: 'Info' },
+};
+
+const SOURCE_ICONS = {
+    email: '📧',
+    calendar: '📅',
+    job: '⚙️',
+    reminder: '⏰',
+};
+
+function showPulseToast(notification) {
     const toastContainer = document.getElementById('toast-container');
-    if (!toastContainer) {
-        console.warn('[Pulse] Toast container not found in DOM');
-        return;
+    if (!toastContainer) return;
+
+    // Limit visible toasts
+    const existing = toastContainer.querySelectorAll('.pulse-toast');
+    if (existing.length >= MAX_VISIBLE_TOASTS) {
+        existing[0]?.remove();
     }
 
+    const config = PRIORITY_CONFIG[notification.priority] || PRIORITY_CONFIG.info;
+    const sourceIcon = SOURCE_ICONS[notification.source] || '🔔';
+
     const toast = document.createElement('div');
-    toast.className = 'toast';
+    toast.className = `pulse-toast pulse-toast-${notification.priority || 'info'}`;
+    toast.style.setProperty('--toast-accent', config.color);
+
+    // Build action buttons HTML
+    const actionsHTML = (notification.actions || []).map(a =>
+        `<button class="pulse-toast-action" data-type="${a.type}" data-url="${a.url || ''}">${a.label}</button>`
+    ).join('');
+
     toast.innerHTML = `
-    <div class="toast-icon">⏰</div>
-    <div class="toast-body">
-      <div class="toast-title">${title}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-  `;
+        <div class="pulse-toast-stripe"></div>
+        <div class="pulse-toast-content">
+            <div class="pulse-toast-header">
+                <span class="pulse-toast-icon">${sourceIcon}</span>
+                <span class="pulse-toast-title">${escapeHTML(notification.title || '')}</span>
+                <button class="pulse-toast-close">✕</button>
+            </div>
+            <div class="pulse-toast-body">${escapeHTML(notification.body || '').replace(/\n/g, '<br>')}</div>
+            ${actionsHTML ? `<div class="pulse-toast-actions">${actionsHTML}</div>` : ''}
+        </div>
+    `;
+
+    // Close button
+    toast.querySelector('.pulse-toast-close').addEventListener('click', () => {
+        toast.classList.add('pulse-toast-hiding');
+        setTimeout(() => toast.remove(), 300);
+    });
+
+    // Action buttons
+    toast.querySelectorAll('.pulse-toast-action').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const url = btn.dataset.url;
+            if (btn.dataset.type === 'open_url' && url) {
+                window.open(url, '_blank');
+            }
+            toast.classList.add('pulse-toast-hiding');
+            setTimeout(() => toast.remove(), 300);
+        });
+    });
 
     toastContainer.appendChild(toast);
 
-    // Auto-hide after 10 seconds
+    // Auto-dismiss after 8 seconds
     setTimeout(() => {
-        toast.classList.add('hiding');
-        setTimeout(() => toast.remove(), 400); // Wait for transition
-    }, 10000);
+        if (toast.parentNode) {
+            toast.classList.add('pulse-toast-hiding');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 8000);
 }
 
-prisma.reminders.onTrigger((reminder) => {
-    showToast('PRISMA Reminder', reminder.title);
-    // Also add to chat if active
-    if (activeConversationId) {
-        // Optional: you could add a specialized "system" message bubble here
-        // addMessage('assistant', `⏰ Reminder: ${reminder.title}`);
-    }
+// Listen for Pulse notifications
+prisma.pulse.onNotification((notification) => {
+    showPulseToast(notification);
 });
+
+// Legacy reminder support
+prisma.reminders.onTrigger((reminder) => {
+    showPulseToast({
+        priority: 'important',
+        source: 'reminder',
+        title: `⏰ ${reminder.title}`,
+        body: `Reminder: ${reminder.title}`,
+        actions: [],
+    });
+});
+
