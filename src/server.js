@@ -13,6 +13,7 @@ const { initAI, callAI, callAIStreaming } = require('./core/ai');
 const { loadContext, appendMessage } = require('./core/context');
 const db = require('./core/database');
 const pulse = require('./services/pulse');
+const { startTelegramBot } = require('./services/telegramBot');
 
 // Memory queue for triggered reminders (to be polled by frontend)
 const triggeredRemindersQueue = [];
@@ -246,6 +247,9 @@ function startServer() {
 
     // Start Pulse Engine (replaces old scheduler)
     pulse.start();
+
+    // Start Telegram Bot (webhook mode — uses ngrok tunnel)
+    startTelegramBot(app);
 
     // Listen for triggered reminders from Pulse
     pulse.on('reminder', (reminder) => {

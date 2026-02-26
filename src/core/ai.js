@@ -91,6 +91,13 @@ async function callAI(messages, user, options = {}) {
 
         // Check for tool calls
         if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+            // Ensure all tool calls have an arguments string (API requires it)
+            assistantMessage.tool_calls.forEach(tc => {
+                if (!tc.function.arguments) {
+                    tc.function.arguments = '{}';
+                }
+            });
+
             // Add the assistant's message (with tool_calls) to conversation
             chatMessages.push(assistantMessage);
 
@@ -192,6 +199,11 @@ async function callAIStreaming(messages, user, onChunk, onToolCall) {
         }
 
         // Handle tool calls
+        assistantMessage.tool_calls.forEach(tc => {
+            if (!tc.function.arguments) {
+                tc.function.arguments = '{}';
+            }
+        });
         chatMessages.push(assistantMessage);
 
         const toolResults = await Promise.all(
