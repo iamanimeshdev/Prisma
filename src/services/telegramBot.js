@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 
-const { callAI } = require('../core/ai');
+const { callAI, callAIStreaming } = require('../core/ai');
 const { loadContext, appendMessage } = require('../core/context');
 const db = require('../core/database');
 
@@ -108,7 +108,7 @@ function startTelegramBot(app) {
 }
 
 /**
- * Handle text messages — send to AI and reply.
+ * Handle text messages — send to AI and reply using chunky streaming.
  */
 async function handleTextMessage(chatId, text, from) {
     const typing = setTyping(chatId);
@@ -119,10 +119,67 @@ async function handleTextMessage(chatId, text, from) {
 
         appendMessage(user.id, convId, 'user', text.trim());
         const context = loadContext(convId);
-        const reply = await callAI(context, user);
+
+        let activeMsgId = null;
+        let lastUpdateTime = 0;
+        let pendingText = '';
+        let isEditing = false;
+
+        // Initial placeholder message so we have something to edit
+        const sentMsg = await bot.sendMessage(chatId, '💭 Thinking...');
+        activeMsgId = sentMsg.message_id;
+
+        const updateMessage = async (newText, force = false) => {
+            pendingText = newText;
+            const now = Date.now();
+            // Update at most once every 2 seconds to avoid rate limit, unless forced (final chunk or tool call)
+            if (!isEditing && activeMsgId && (force || now - lastUpdateTime > 2000)) {
+                isEditing = true;
+                lastUpdateTime = now;
+                try {
+                    await bot.editMessageText(pendingText, {
+                        chat_id: chatId,
+                        message_id: activeMsgId,
+                        parse_mode: 'Markdown'
+                    });
+                } catch (e) {
+                    // Ignore "message is not modified" errors
+                } finally {
+                    isEditing = false;
+                }
+            }
+        };
+
+        const onChunk = (chunkText) => {
+            // Chunked streaming is disabled as per user request.
+            // We wait for the final forced update.
+        };
+
+        const onToolCall = (toolName) => {
+            // Instantly update the message to show tool execution
+            updateMessage(`⚙️ *Executing tool:* \`${toolName}\`...`, true);
+        };
+
+        const reply = await callAIStreaming(context, user, onChunk, onToolCall);
         appendMessage(user.id, convId, 'assistant', reply);
 
-        await sendLongMessage(chatId, reply);
+        // Final forced update to ensure we display the absolute complete response
+        if (reply.length > 4000) {
+            bot.deleteMessage(chatId, activeMsgId).catch(() => { });
+            await sendLongMessage(chatId, reply);
+        } else {
+            try {
+                await bot.editMessageText(reply, {
+                    chat_id: chatId,
+                    message_id: activeMsgId,
+                    parse_mode: 'Markdown'
+                });
+            } catch (e) {
+                bot.deleteMessage(chatId, activeMsgId).catch(() => { });
+                await sendLongMessage(chatId, reply);
+            }
+        }
+
     } catch (err) {
         console.error('[Telegram] Error:', err.message);
         bot.sendMessage(chatId, `❌ Error: ${err.message}`);
@@ -203,10 +260,44 @@ async function handleCommand(chatId, text) {
             bot.sendMessage(chatId,
                 `*Commands:*\n` +
                 `/new — Start a fresh conversation\n` +
+                `/emailcheck — Enable 5-minute background email polling\n` +
+                `/emailstop — Disable background email polling\n` +
                 `/help — Show this message\n\n` +
                 `Or just type/speak naturally!`,
                 { parse_mode: 'Markdown' }
             );
+            break;
+
+        case '/emailcheck':
+            try {
+                const user = getOrCreateUser(chatId, null);
+                db.upsertMemory({
+                    id: uuidv4(),
+                    userId: user.id,
+                    key: 'email_check_enabled',
+                    value: 'true',
+                    category: 'preference'
+                });
+                bot.sendMessage(chatId, '✅ *Email Polling Enabled*\nPRISMA will now check your inbox every 5 minutes and alert you if monitored senders email you. (Uses ~288 API calls/day)', { parse_mode: 'Markdown' });
+            } catch (err) {
+                bot.sendMessage(chatId, `❌ Failed to toggle: ${err.message}`);
+            }
+            break;
+
+        case '/emailstop':
+            try {
+                const user = getOrCreateUser(chatId, null);
+                db.upsertMemory({
+                    id: uuidv4(),
+                    userId: user.id,
+                    key: 'email_check_enabled',
+                    value: 'false',
+                    category: 'preference'
+                });
+                bot.sendMessage(chatId, '🛑 *Email Polling Disabled*\nPRISMA will no longer check your inbox in the background.', { parse_mode: 'Markdown' });
+            } catch (err) {
+                bot.sendMessage(chatId, `❌ Failed to toggle: ${err.message}`);
+            }
             break;
 
         default:

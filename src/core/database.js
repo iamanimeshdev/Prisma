@@ -109,6 +109,14 @@ db.exec(`
     notified_at TEXT DEFAULT (datetime('now')),
     UNIQUE(user_id, source, source_id)
   );
+
+  CREATE TABLE IF NOT EXISTS monitored_emails (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, email)
+  );
 `);
 
 // ── Database Migration ─────────────────────────────────────
@@ -240,6 +248,18 @@ const stmts = {
     DELETE FROM pulse_log WHERE notified_at < datetime('now', '-7 days')
   `),
   getAllUsers: db.prepare('SELECT * FROM users'),
+
+  // Monitored Emails
+  addMonitoredEmail: db.prepare(`
+    INSERT OR IGNORE INTO monitored_emails (id, user_id, email)
+    VALUES (@id, @userId, @email)
+  `),
+  removeMonitoredEmail: db.prepare(`
+    DELETE FROM monitored_emails WHERE user_id = ? AND email = ?
+  `),
+  getMonitoredEmails: db.prepare(`
+    SELECT email FROM monitored_emails WHERE user_id = ?
+  `),
 };
 
 // ── Exported Helpers ───────────────────────────────────────
@@ -355,5 +375,17 @@ module.exports = {
   },
   getAllUsers() {
     return stmts.getAllUsers.all();
+  },
+
+  // Monitored Emails
+  addMonitoredEmail(userId, email) {
+    const { v4: uuidv4 } = require('uuid');
+    return stmts.addMonitoredEmail.run({ id: uuidv4(), userId, email: email.toLowerCase().trim() });
+  },
+  removeMonitoredEmail(userId, email) {
+    return stmts.removeMonitoredEmail.run(userId, email.toLowerCase().trim());
+  },
+  getMonitoredEmails(userId) {
+    return stmts.getMonitoredEmails.all(userId).map(row => row.email);
   },
 };

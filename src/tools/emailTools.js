@@ -222,3 +222,55 @@ registerTool({
         };
     },
 });
+
+// ════════════════════════════════════════════════════════════
+// TOOL: monitor_email_sender
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'monitor_email_sender',
+    description: 'Proactively monitor all incoming emails from a specific sender. The AI will instantly notify the user if an email arrives from this address.',
+    schema: z.object({
+        sender: z.string().describe('The email address to monitor (e.g., boss@company.com)'),
+    }),
+    async execute(args, context) {
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(args.sender)) {
+            return { success: false, error: 'Invalid email address format' };
+        }
+
+        const db = require('../core/database');
+        try {
+            db.addMonitoredEmail(context.userId, args.sender);
+            return {
+                success: true,
+                message: `Now monitoring incoming emails from ${args.sender}. You will be alerted instantly when they email you.`
+            };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    },
+});
+
+// ════════════════════════════════════════════════════════════
+// TOOL: stop_monitoring_sender
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'stop_monitoring_sender',
+    description: 'Stop proactively monitoring a specific sender.',
+    schema: z.object({
+        sender: z.string().describe('The email address to stop monitoring'),
+    }),
+    async execute(args, context) {
+        const db = require('../core/database');
+        try {
+            db.removeMonitoredEmail(context.userId, args.sender);
+            return {
+                success: true,
+                message: `Stopped monitoring incoming emails from ${args.sender}.`
+            };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    },
+});

@@ -56,12 +56,69 @@ router.post('/', express.json(), (req, res) => {
             // Only care when a new issue is opened
             if (payload.action === 'opened' && payload.issue) {
                 console.log(`[Webhook] Real-time issue opened for ${repoFullName} (#${payload.issue.number})`);
-                // Pass the SPECIFIC issue from the webhook, not all issues
-                pulseEngine._handleNewIssue(repoFullName, userId, {
-                    number: payload.issue.number,
-                    title: payload.issue.title,
-                    body: payload.issue.body || '',
-                    labels: (payload.issue.labels || []).map(l => ({ name: l.name })),
+                // Check if Pulse Engine has this method before calling
+                if (typeof pulseEngine._handleNewIssue === 'function') {
+                    pulseEngine._handleNewIssue(repoFullName, userId, {
+                        number: payload.issue.number,
+                        title: payload.issue.title,
+                        body: payload.issue.body || '',
+                        labels: (payload.issue.labels || []).map(l => ({ name: l.name })),
+                    });
+                }
+            }
+        }
+        else if (event === 'pull_request') {
+            if (payload.action === 'review_requested') {
+                console.log(`[Webhook] PR Review requested for ${repoFullName}`);
+                pulseEngine._notify({
+                    userId,
+                    source: 'github',
+                    sourceId: `pr-review-${payload.pull_request.id}`,
+                    priority: 'urgent',
+                    title: `[PR Review] ${payload.pull_request.title}`,
+                    body: `${payload.sender.login} requested your review on PR #${payload.pull_request.number}`,
+                    actions: [{ label: 'View PR', type: 'open_url', url: payload.pull_request.html_url }],
+                });
+            } else if (payload.action === 'assigned') {
+                console.log(`[Webhook] Assigned to PR for ${repoFullName}`);
+                pulseEngine._notify({
+                    userId,
+                    source: 'github',
+                    sourceId: `pr-assign-${payload.pull_request.id}`,
+                    priority: 'urgent',
+                    title: `[Assigned] ${payload.pull_request.title}`,
+                    body: `You were assigned to PR #${payload.pull_request.number} by ${payload.sender.login}`,
+                    actions: [{ label: 'View PR', type: 'open_url', url: payload.pull_request.html_url }],
+                });
+            }
+        }
+        else if (event === 'pull_request_review') {
+            if (payload.action === 'submitted' && payload.review.state !== 'approved' && payload.review.state !== 'commented') {
+                console.log(`[Webhook] PR Review submitted for ${repoFullName}`);
+                pulseEngine._notify({
+                    userId,
+                    source: 'github',
+                    sourceId: `pr-reviewed-${payload.review.id}`,
+                    priority: 'urgent',
+                    title: `[PR Reviewed] ${payload.pull_request.title}`,
+                    body: `${payload.sender.login} submitted a review: ${payload.review.state.toUpperCase()}`,
+                    actions: [{ label: 'View Review', type: 'open_url', url: payload.review.html_url }],
+                });
+            }
+        }
+        else if (event === 'issue_comment') {
+            if (payload.action === 'created' && payload.comment.body.includes('@' + payload.repository.owner.login)) {
+                // Heuristic: basic mention check
+                console.log(`[Webhook] Mention found in comment for ${repoFullName}`);
+                const typeName = payload.issue.pull_request ? 'PR' : 'Issue';
+                pulseEngine._notify({
+                    userId,
+                    source: 'github',
+                    sourceId: `comment-mention-${payload.comment.id}`,
+                    priority: 'urgent',
+                    title: `[Mentioned] ${typeName} #${payload.issue.number}`,
+                    body: `${payload.sender.login} mentioned you: "${payload.comment.body.substring(0, 100)}..."`,
+                    actions: [{ label: `View ${typeName}`, type: 'open_url', url: payload.comment.html_url }],
                 });
             }
         }

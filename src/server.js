@@ -26,6 +26,7 @@ require('./tools/scheduleTools');
 require('./tools/gitTools');
 require('./tools/repoGuardian');
 require('./tools/issuePrTools');
+require('./tools/githubTools');
 
 const app = express();
 const PORT = process.env.PORT || 3000;

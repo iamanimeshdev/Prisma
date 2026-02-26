@@ -143,6 +143,10 @@ class PulseEngine extends EventEmitter {
 
     async _checkEmailsForUser(user) {
         try {
+            // Check opt-in flag
+            const pref = db.getMemory(user.id, 'email_check_enabled');
+            if (!pref || pref.value !== 'true') return;
+
             const auth = await getAuthenticatedClient(user.id);
             const gmail = google.gmail({ version: 'v1', auth });
 
@@ -186,15 +190,28 @@ class PulseEngine extends EventEmitter {
 
             if (filteredEmails.length === 0) return;
 
+            // Get monitored emails to cross-reference
+            const monitoredEmails = db.getMonitoredEmails(user.id).map(e => e.toLowerCase());
+
             for (const email of filteredEmails) {
-                const priority = this._classifyEmailPriority(email);
+                let priority = this._classifyEmailPriority(email);
+
+                // If it's a monitored sender, bump priority to urgent so it sends a Telegram alert
+                const fromLower = email.from.toLowerCase();
+                const isMonitored = monitoredEmails.some(monitored => fromLower.includes(monitored));
+
+                if (isMonitored) {
+                    priority = 'urgent';
+                }
 
                 this._notify({
                     userId: user.id,
                     source: 'email',
                     sourceId: email.id,
                     priority,
-                    title: priority === 'urgent' ? `[URGENT] ${email.subject}` : `[Email] ${email.subject}`,
+                    title: isMonitored
+                        ? `[MONITORED] ${email.subject}`
+                        : (priority === 'urgent' ? `[URGENT] ${email.subject}` : `[Email] ${email.subject}`),
                     body: `From: ${email.from}\n${email.snippet}`,
                     actions: [{ label: 'Open Gmail', type: 'open_url', url: `https://mail.google.com/mail/u/0/#inbox/${email.id}` }],
                 });
@@ -657,7 +674,7 @@ class PulseEngine extends EventEmitter {
             const payload = {
                 name: 'web',
                 active: true,
-                events: ['push', 'issues'],
+                events: ['push', 'issues', 'pull_request', 'pull_request_review', 'issue_comment'],
                 config: {
                     url: webhookUrl,
                     content_type: 'json',
