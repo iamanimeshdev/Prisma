@@ -1,8 +1,18 @@
 // ============================================================
 // PRISMA — Electron Main Process
 // ============================================================
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
+const envPath = path.join(__dirname, '..', '.env');
+const dotenvResult = require('dotenv').config({ path: envPath });
+if (dotenvResult.error) {
+    console.error('[Electron] Failed to load .env:', dotenvResult.error.message);
+} else {
+    console.log('[Electron] .env loaded from:', envPath);
+    console.log('[Electron] PORCUPINE_ACCESS_KEY:', process.env.PORCUPINE_ACCESS_KEY ? 'LOADED' : 'MISSING');
+    console.log('[Electron] TTS_VOICE:', process.env.TTS_VOICE || 'not set');
+}
+
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const fs = require('fs');
 const { execSync, spawn } = require('child_process');
 const voiceEngine = require('../src/voice/engine');
@@ -352,7 +362,6 @@ app.whenReady().then(async () => {
         server = spawn('node', [serverScript], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env },
-            shell: true,
         });
         server.stdout.on('data', (d) => console.log(`[Server] ${d.toString().trim()}`));
         server.stderr.on('data', (d) => console.error(`[Server] ${d.toString().trim()}`));
@@ -469,6 +478,11 @@ function startPulsePolling() {
         }
     }, 5000);
 }
+
+app.on('before-quit', () => {
+    // Force-kill all voice processes (ffplay, Python server)
+    voiceEngine.destroy();
+});
 
 app.on('window-all-closed', () => {
     voiceEngine.destroy();

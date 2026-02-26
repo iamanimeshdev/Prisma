@@ -4,7 +4,8 @@
 const EventEmitter = require('events');
 const wakeWord = require('./wakeWord');
 const { listen } = require('./stt');
-const { speak, stopSpeaking } = require('./tts');
+const { speak, stopSpeaking, precache, destroy: destroyTTS } = require('./tts');
+const { startVoiceServer, destroyVoiceServer } = require('./voiceServer');
 
 // Voice states
 const STATE = {
@@ -20,13 +21,20 @@ class VoiceEngine extends EventEmitter {
         super();
         this.state = STATE.IDLE;
         this.enabled = false;
-        this._chatHandler = null; // Set by Electron main process
+        this._chatHandler = null;
+        this._hasGreeted = false; // Greet only once on first wake
     }
 
     /**
      * Initialize the voice engine.
      */
     async initialize() {
+        // Start unified Python voice server (loads Whisper + edge-tts)
+        await startVoiceServer();
+
+        // Pre-cache the greeting for instant playback
+        precache('greeting', 'Hi, this is Prism! What can I do for you today?');
+
         await wakeWord.initialize();
 
         wakeWord.on('detected', () => {
@@ -34,11 +42,13 @@ class VoiceEngine extends EventEmitter {
         });
 
         console.log('[VoiceEngine] Initialized');
+
+        // Auto-enable listening on startup — always on
+        this.enable();
     }
 
     /**
      * Set the chat handler function that sends messages to the backend.
-     * @param {Function} handler - async (text) => responseText
      */
     setChatHandler(handler) {
         this._chatHandler = handler;
@@ -69,11 +79,8 @@ class VoiceEngine extends EventEmitter {
      * Toggle voice on/off.
      */
     toggle() {
-        if (this.enabled) {
-            this.disable();
-        } else {
-            this.enable();
-        }
+        if (this.enabled) this.disable();
+        else this.enable();
         return this.enabled;
     }
 
@@ -81,9 +88,7 @@ class VoiceEngine extends EventEmitter {
      * Manual trigger (from UI button or keyboard shortcut).
      */
     manualTrigger() {
-        if (this.state === STATE.SPEAKING) {
-            stopSpeaking();
-        }
+        if (this.state === STATE.SPEAKING) stopSpeaking();
         this._onWakeWordDetected();
     }
 
@@ -91,19 +96,35 @@ class VoiceEngine extends EventEmitter {
      * Handle wake word detection.
      */
     async _onWakeWordDetected() {
-        if (!this.enabled && this.state !== STATE.IDLE) return;
+        // If speaking, interrupt — stop speech and go straight to recording
+        if (this.state === STATE.SPEAKING) {
+            console.log('[VoiceEngine] Interrupted by wake word');
+            stopSpeaking();
+            this._interrupted = true;
+            // Fall through to start recording
+        }
+
         if (this.state === STATE.RECORDING || this.state === STATE.PROCESSING) return;
 
+        this._interrupted = false;
+
         try {
-            // Stop listening for wake word during recording
             wakeWord.stopListening();
             stopSpeaking();
+
+            // Greet only on first wake word after app startup
+            if (!this._hasGreeted) {
+                this._setState(STATE.SPEAKING);
+                console.log('[VoiceEngine] First wake — greeting user');
+                await speak('Hi, this is Prism! What can I do for you today?', 'greeting');
+                this._hasGreeted = true;
+            }
 
             // Record user speech
             this._setState(STATE.RECORDING);
             this.emit('stateChange', this.state);
 
-            const text = await listen(5000); // 5 second recording
+            const text = await listen(7000);
 
             if (!text || text.trim().length === 0) {
                 console.log('[VoiceEngine] No speech detected');
@@ -114,29 +135,29 @@ class VoiceEngine extends EventEmitter {
             console.log('[VoiceEngine] User said:', text);
             this.emit('userSpeech', text);
 
-            // Process through chat
             this._setState(STATE.PROCESSING);
 
             if (this._chatHandler) {
                 const response = await this._chatHandler(text);
-                console.log('[VoiceEngine] Assistant response:', response?.substring(0, 100));
+                console.log('[VoiceEngine] Response:', response?.substring(0, 100));
                 this.emit('assistantResponse', response);
 
-                // Speak response
+                // Speak response — but keep wake word active so user can interrupt
                 this._setState(STATE.SPEAKING);
+                wakeWord.startListening();
                 await speak(response);
             }
         } catch (err) {
-            console.error('[VoiceEngine] Error:', err.message);
-            this.emit('error', err);
+            // Ignore errors from interrupted speech
+            if (!this._interrupted) {
+                console.error('[VoiceEngine] Error:', err.message);
+                this.emit('error', err);
+            }
         } finally {
             this._resumeListening();
         }
     }
 
-    /**
-     * Resume listening for wake word.
-     */
     _resumeListening() {
         if (this.enabled) {
             this._setState(STATE.LISTENING_WAKE);
@@ -146,17 +167,11 @@ class VoiceEngine extends EventEmitter {
         }
     }
 
-    /**
-     * Update state and emit change event.
-     */
     _setState(newState) {
         this.state = newState;
         this.emit('stateChange', newState);
     }
 
-    /**
-     * Get current state.
-     */
     getState() {
         return {
             state: this.state,
@@ -165,12 +180,11 @@ class VoiceEngine extends EventEmitter {
         };
     }
 
-    /**
-     * Clean up.
-     */
     destroy() {
         this.disable();
         wakeWord.destroy();
+        destroyTTS();
+        destroyVoiceServer();
     }
 }
 

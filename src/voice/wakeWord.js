@@ -1,7 +1,8 @@
 // ============================================================
-// PRISMA — Wake Word Detection
+// PRISMA — Wake Word Detection (Custom "Prism" keyword)
 // ============================================================
 const EventEmitter = require('events');
+const path = require('path');
 
 class WakeWordEngine extends EventEmitter {
     constructor() {
@@ -13,8 +14,7 @@ class WakeWordEngine extends EventEmitter {
     }
 
     /**
-     * Initialize wake word detection.
-     * Falls back gracefully if Porcupine is not available.
+     * Initialize wake word detection with custom "Prism" keyword.
      */
     async initialize() {
         const accessKey = process.env.PORCUPINE_ACCESS_KEY;
@@ -25,39 +25,15 @@ class WakeWordEngine extends EventEmitter {
         }
 
         try {
-            const { Porcupine, BuiltinKeyword } = require('@picovoice/porcupine-node');
-            const keyword = process.env.WAKE_WORD?.toLowerCase() || 'computer';
+            const { Porcupine } = require('@picovoice/porcupine-node');
 
-            // Map wake word to built-in keyword (Porcupine has limited built-in keywords)
-            // For custom "prisma" keyword, you'd need a custom .ppn file from Picovoice Console
-            // Defaulting to "computer" as a built-in fallback
-            let keywordEnum = BuiltinKeyword.COMPUTER;
-            const builtinMap = {
-                alexa: BuiltinKeyword.ALEXA,
-                americano: BuiltinKeyword.AMERICANO,
-                blueberry: BuiltinKeyword.BLUEBERRY,
-                bumblebee: BuiltinKeyword.BUMBLEBEE,
-                computer: BuiltinKeyword.COMPUTER,
-                grapefruit: BuiltinKeyword.GRAPEFRUIT,
-                grasshopper: BuiltinKeyword.GRASSHOPPER,
-                'hey google': BuiltinKeyword.HEY_GOOGLE,
-                'hey siri': BuiltinKeyword.HEY_SIRI,
-                jarvis: BuiltinKeyword.JARVIS,
-                'ok google': BuiltinKeyword.OK_GOOGLE,
-                picovoice: BuiltinKeyword.PICOVOICE,
-                porcupine: BuiltinKeyword.PORCUPINE,
-                terminator: BuiltinKeyword.TERMINATOR,
-            };
+            // Use custom .ppn file for "Prism" keyword
+            const customKeywordPath = process.env.WAKE_WORD_PATH
+                || path.join(__dirname, 'keywords', 'Prism_en_windows.ppn');
 
-            if (builtinMap[keyword]) {
-                keywordEnum = builtinMap[keyword];
-            } else {
-                console.warn(`[WakeWord] "${keyword}" is not a built-in keyword. Using "computer". For custom keywords, generate a .ppn file from Picovoice Console.`);
-            }
-
-            this.porcupine = new Porcupine(accessKey, [keywordEnum], [0.5]);
+            this.porcupine = new Porcupine(accessKey, [customKeywordPath], [0.5]);
             this.available = true;
-            console.log(`[WakeWord] Initialized with keyword: "${keyword}"`);
+            console.log('[WakeWord] Initialized with custom keyword: "Prism"');
         } catch (err) {
             console.warn('[WakeWord] Porcupine not available:', err.message);
             this.available = false;
@@ -112,7 +88,7 @@ class WakeWordEngine extends EventEmitter {
 
                     const keywordIndex = this.porcupine.process(frame);
                     if (keywordIndex >= 0) {
-                        console.log('[WakeWord] Detected!');
+                        console.log('[WakeWord] "Prism" detected!');
                         this.emit('detected');
                     }
                 }
@@ -127,7 +103,7 @@ class WakeWordEngine extends EventEmitter {
             });
 
             this.isListening = true;
-            console.log('[WakeWord] Listening...');
+            console.log('[WakeWord] Listening for "Prism"...');
         } catch (err) {
             console.error('[WakeWord] Failed to start recording:', err.message);
         }

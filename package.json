@@ -18,7 +18,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@picovoice/porcupine-node": "^3.0.0",
+    "@picovoice/porcupine-node": "^4.0.2",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
@@ -26,7 +26,6 @@
     "express-session": "^1.18.0",
     "googleapis": "^144.0.0",
     "node-record-lpcm16": "^1.0.1",
-    "say": "^0.16.0",
     "uuid": "^11.0.0",
     "zod": "^3.24.0"
   },

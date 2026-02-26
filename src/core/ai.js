@@ -7,6 +7,7 @@ const { getSystemPrompt } = require('./context');
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'arcee-ai/trinity-large-preview:free';
 
+
 let apiKey = null;
 
 function initAI() {

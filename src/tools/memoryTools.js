@@ -88,3 +88,44 @@ registerTool({
         };
     },
 });
+
+// ════════════════════════════════════════════════════════════
+// TOOL: update_memory
+// ════════════════════════════════════════════════════════════
+registerTool({
+    name: 'update_memory',
+    description: `Update an existing fact in long-term memory with a new value. Use when the user provides updated information about something you already know, e.g. a new email address, changed preference, or corrected fact. If the key doesn't exist yet, it will be stored as new.`,
+    schema: z.object({
+        key: z.string().describe('The key of the memory to update, e.g. "Dinesh email" or "preferred language"'),
+        newValue: z.string().describe('The updated value, e.g. "dinesh.new@example.com"'),
+        category: z.string().optional().describe('Category: "contact", "preference", "schedule", or "fact" (default: keeps existing)'),
+    }),
+    async execute(args, context) {
+        const keyNorm = args.key.toLowerCase().trim();
+        const existing = db.getMemory(context.userId, keyNorm);
+        const oldValue = existing ? existing.value : null;
+
+        db.upsertMemory({
+            id: existing ? existing.id : uuidv4(),
+            userId: context.userId,
+            key: keyNorm,
+            value: args.newValue.trim(),
+            category: args.category || (existing ? existing.category : 'fact'),
+        });
+
+        if (oldValue) {
+            return {
+                success: true,
+                message: `Updated: "${args.key}" from "${oldValue}" → "${args.newValue}"`,
+                oldValue,
+                newValue: args.newValue,
+            };
+        }
+
+        return {
+            success: true,
+            message: `Stored (new): "${args.key}" = "${args.newValue}"`,
+            newValue: args.newValue,
+        };
+    },
+});
