@@ -511,7 +511,7 @@ Prerequisites: git and gh (GitHub CLI) installed and authenticated.`,
                     folderPath,
                     repoUrl,
                 });
-            } catch { /* pulse not ready */ }
+            } catch (pulseErr) { console.error('[GitTools] repo:pushed emit failed:', pulseErr.message); }
 
             return {
                 success: true,

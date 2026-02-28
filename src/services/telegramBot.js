@@ -262,6 +262,7 @@ async function handleCommand(chatId, text) {
                 `/new — Start a fresh conversation\n` +
                 `/emailcheck — Enable 5-minute background email polling\n` +
                 `/emailstop — Disable background email polling\n` +
+                `/syncrepos — Instantly sync all GitHub repos and register webhooks\n` +
                 `/help — Show this message\n\n` +
                 `Or just type/speak naturally!`,
                 { parse_mode: 'Markdown' }
@@ -297,6 +298,17 @@ async function handleCommand(chatId, text) {
                 bot.sendMessage(chatId, '🛑 *Email Polling Disabled*\nPRISMA will no longer check your inbox in the background.', { parse_mode: 'Markdown' });
             } catch (err) {
                 bot.sendMessage(chatId, `❌ Failed to toggle: ${err.message}`);
+            }
+            break;
+
+        case '/syncrepos':
+            try {
+                bot.sendMessage(chatId, '🔄 *Syncing GitHub repos...*\nDiscovering all repos and registering webhooks.', { parse_mode: 'Markdown' });
+                const pulse = require('./pulse');
+                await pulse._checkGitHubRepos();
+                bot.sendMessage(chatId, '✅ *Repo sync complete!*\nAll your GitHub repos now have webhooks registered for instant push/issue/PR notifications.', { parse_mode: 'Markdown' });
+            } catch (err) {
+                bot.sendMessage(chatId, `❌ Sync failed: ${err.message}`);
             }
             break;
 
