@@ -2,7 +2,7 @@
 
 ### Personal Research & Intelligent System Manager Assistant
 
-> 🏆 **AMD Pervasive AI Developer Contest Hackathon Submission**
+> 🏆 **AMD Slingshot Hackathon Submission**
 
 PRISMA is a locally-hosted, AI-powered developer productivity assistant that lives on your desktop and in your pocket. It combines a premium **Electron** desktop app, a **Telegram bot**, and a **voice interface** into one unified system — powered by an LLM with **22 autonomous AI tools** that can chain together to complete complex multi-step workflows without human intervention.
 
@@ -267,5 +267,5 @@ Distributed under the MIT License.
 ---
 
 <p align="center">
-  <b>PRISMA</b> — Built with ❤️ for the <b>AMD Pervasive AI Developer Contest</b>
+  <b>PRISMA</b> — Built with ❤️ for the <b>AMD Slingshot Hackathon</b>
 </p>
